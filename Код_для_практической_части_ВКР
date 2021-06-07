@@ -1,0 +1,1036 @@
+#Загрузка библиотек для анализа
+import matplotlib.pyplot as plt
+
+import pandas as pd
+from pandas import DataFrame
+
+from openpyxl import load_workbook
+
+import numpy as np
+import pydot as pydot
+#import pydotplus as pydotplus
+#import pydot as pydot
+
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, SimpleRNN, LSTM, GRU
+from tensorflow.keras.layers import Dropout
+from tensorflow.keras import regularizers
+from tensorflow.keras import initializers
+
+# библиотеки для визуализации архитектуры ИНС
+from IPython.display import SVG
+from tensorflow.keras.utils import model_to_dot
+from tensorflow.keras.utils import plot_model
+
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+wb = load_workbook('ДЦО_данные_по_30_апреля.xlsx')
+#wb = load_workbook('Данные_для_ДЦО_без_лишних_нулей_Рубли.xlsx')
+
+#Данные_для_ДЦО_без_лишних_нулей_Рубли
+
+#sheet = wb['Данные_для_ДЦО']
+#name_full = []
+#name_X = []
+name_описание = []
+
+#Для ДЦО_данные_по_30_апреля
+start_column = 12
+end_column = 30
+numder_row = 2113
+
+for k in range(1,start_column):
+    name_описание.append(sheet.cell(row=1, column=k).value)
+
+print('name_описание: ', name_описание)
+
+
+sheet = wb['Данные_для_ДЦО']
+name_full = []
+name_X = []
+##a = []
+
+#Для ДЦО_данные_по_30_апреля
+start_column = 12
+end_column = 30
+numder_row = 2113
+
+for k in range(start_column, end_column):
+    name_full.append(sheet.cell(row=1, column=k).value)
+    
+for k in range(start_column+2, end_column):
+    name_X.append(sheet.cell(row=1, column=k).value)
+##name.append(a)
+print('name_full: ', name_full)
+print('            ')
+print('name_X: ', name_X)
+
+
+
+data = []
+for i in range(2, numder_row):
+    a = []
+    for k in range(start_column, end_column):
+        a.append(sheet.cell(row=i, column=k).value)
+    data.append(a)
+
+#Изменение порядка строк в базе данных в случайном порядке
+#np.random.shuffle(data)
+
+
+data_описание = []
+for i in range(2, numder_row):
+    a = []
+    for k in range(1, start_column):
+        a.append(sheet.cell(row=i, column=k).value)
+    data_описание.append(a)
+
+data_pd_описание = pd.DataFrame(data=data_описание,
+          index=np.array(range(1, len(data_описание)+1)),
+          columns=name_описание)
+
+data_pd_описание.to_clipboard()
+data_pd_описание.head()
+
+data_pd = pd.DataFrame(data=data,
+          index=np.array(range(1, len(data)+1)),
+          columns=name_full)
+data_pd.head()
+
+data_pd.iloc[:,2:].hist(figsize=(30,15))
+
+data_pd.iloc[:,0:2].plot.box(sym="r+",figsize=(10,5));
+
+data_pd.iloc[:,0:2].hist(figsize=(20,4))
+
+data_pd.iloc[:,0:2].plot(figsize=(30,10))
+
+#Определение размера обучающей и тестовой выборок
+num_training = int(0.7 * len(data))
+num_training_val = int(0.1 * len(data))
+num_test = len(data) - num_training - num_training_val
+
+print(len(data),' = ', num_training, ' + ',num_training_val, ' + ',num_test)
+
+
+
+
+'''
+date_training = data_pd.iloc[:num_training,:]
+date_training_val = data_pd.iloc[num_training:(num_training + num_training_val),:]
+date_test = data_pd.iloc[-num_test:,:]
+
+Y = date_training.iloc[:,0]
+Y_system = date_training.iloc[:,1]
+X = date_training.iloc[:,2:]
+
+Y_val = date_training_val.iloc[:,0]
+Y_system_val = date_training_val.iloc[:,1]
+X_val = date_training_val.iloc[:,2:]
+
+y_test = date_test.iloc[:,0]
+y_test_system = date_test.iloc[:,1]
+X_test = date_test.iloc[:,2:]
+'''
+
+#Формирование обучающей и тестовой выборок
+baza = []
+baza_val = []
+baza_test = []
+for i in range(2, num_test + num_training + num_training_val):
+    if i <= num_training:
+        baza.append(data[i])
+    elif i <= (num_training + num_training_val):
+        baza_val.append(data[i])
+    else:
+        baza_test.append(data[i])
+
+Y = []
+X = []
+Y_system = []
+for i in range(len(baza)):
+    tempmas_y = []
+    tempmas_y_system = []
+    tempmas_x = []
+    for j in range(len(baza[i])):
+        if (j == 0):
+            tempmas_y.append(baza[i][j])
+        elif(j == 1):
+            tempmas_y_system.append(baza[i][j])
+        else:
+            tempmas_x.append(baza[i][j])
+    X.append(tempmas_x)
+    Y.append(tempmas_y)
+    Y_system.append(tempmas_y_system)
+
+X = np.array(X).astype(np.float)
+Y = np.array(Y).astype(np.float)
+Y_system = np.array(Y_system).astype(np.float)
+
+# Среднее значение
+mean = X.mean(axis=0)
+# Стандартное отклонение
+std = X.std(axis=0)
+
+#Стандартизация данных
+X -= mean
+X /= std
+
+
+#Формирование валидационной выборки
+y_val = []
+y_val_system = []
+x_val = []
+
+
+for i in range(len(baza_val)):
+    tempmas_y = []
+    tempmas_y_system = []
+    tempmas_x = []
+    for j in range(len(baza_val[i])):
+        if (j == 0):
+            tempmas_y.append(baza_val[i][j])
+        elif(j == 1):
+            tempmas_y_system.append(baza_val[i][j])
+        else:
+            tempmas_x.append(baza_val[i][j])
+    x_val.append(tempmas_x)
+    y_val.append(tempmas_y)
+    y_val_system.append(tempmas_y_system)
+
+x_val = np.array(x_val).astype(np.float)
+y_val = np.array(y_val).astype(np.float)
+y_val_system = np.array(y_val_system).astype(np.float)
+
+
+# Стандартизация данных
+x_val -= mean
+x_val /= std
+
+#Нормализация данных (от )
+#x_val -= min_x
+#x_val /= (max_x - min_x)
+
+#Формирование тестовой выборки
+y_test = []
+y_test_system = []
+x_test = []
+
+
+for i in range(len(baza_test)):
+    tempmas_y = []
+    tempmas_y_system = []
+    tempmas_x = []
+    for j in range(len(baza_test[i])):
+        if (j == 0):
+            tempmas_y.append(baza_test[i][j])
+        elif(j == 1):
+            tempmas_y_system.append(baza_test[i][j])
+        else:
+            tempmas_x.append(baza_test[i][j])
+    x_test.append(tempmas_x)
+    y_test.append(tempmas_y)
+    y_test_system.append(tempmas_y_system)
+
+x_test = np.array(x_test).astype(np.float)
+y_test = np.array(y_test).astype(np.float)
+y_test_system = np.array(y_test_system).astype(np.float)
+
+# Стандартизация данных
+x_test -= mean
+x_test /= std
+
+#Нормализация данных (от )
+#x_test -= min_x
+#x_test /= (max_x - min_x)
+
+print("Обучающая выборка (факт):")
+t = np.arange(0, num_training-1, 1)
+plt.figure(figsize=(20, 5))
+plt.plot(t, Y, 'b*')
+plt.show()
+
+print("Валидационная выборка (факт):")
+t = np.arange(0, num_training_val, 1)
+plt.figure(figsize=(20, 5))
+plt.plot(t, y_val, 'b*')
+plt.show()
+
+print("Тестовая выборка (факт):")
+t = np.arange(0, num_test-1, 1)
+plt.figure(figsize=(20, 5))
+plt.plot(t, y_test, 'b*')
+plt.show()
+
+
+
+print("Обучающая выборка:")
+print("синий - факт, зелёный - решение системы ")
+t = np.arange(0, num_training-1, 1)
+plt.figure(figsize=(20, 7))
+plt.plot(t, Y, 'b*', Y_system, 'g*')
+plt.show()
+
+
+print("Валидационная выборка:")
+print("синий - факт, зелёный - решение системы ")
+t = np.arange(0, num_training_val, 1)
+plt.figure(figsize=(20, 5))
+plt.plot(t, y_val, 'b*', y_val_system, 'g*')
+plt.show()
+
+
+print("Тестовая выборка:")
+print("синий - факт, зелёный - решение системы ")
+t = np.arange(0, num_test-1, 1)
+plt.figure(figsize=(20, 5))
+plt.plot(t, y_test, 'b*', y_test_system, 'g*')
+plt.show()
+
+
+
+# Вот в таком виде данные будут поступать в анализ
+X_pd = pd.DataFrame(data=X,
+          index=np.array(range(1, len(X)+1)),
+          columns=name_X)
+X_pd
+
+X_pd.hist(figsize=(30,15))
+
+# Создаем сеть
+# Выходной слой с одним линейным нейроном - для задачи регрессии функция активации не используется.
+# Функция ошибки - среднеквадратичное отклонение. Метрика - среднее абсолютное отклонение.
+
+'''
+model = Sequential()
+model.add(Dense(____, activation='tanh', input_shape=(X.shape[1],)))
+model.add(Dense(____, activation='relu'))
+model.add(Dense(1))
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+'''
+
+#Выбор архитектуры: вариант №1
+model = Sequential()
+model.add(Dense(20, activation='tanh', input_shape=(X.shape[1],)))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Выбор архитектуры: вариант №2
+model = Sequential()
+model.add(Dense(40, activation='tanh', input_shape=(X.shape[1],)))
+model.add(Dense(20, activation='tanh'))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Выбор архитектуры: вариант №3
+model = Sequential()
+model.add(Dense(60, activation='tanh', input_shape=(X.shape[1],)))
+model.add(Dense(40, activation='tanh'))
+model.add(Dense(20, activation='tanh'))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Выбор архитектуры: вариант №4
+model = Sequential()
+model.add(Dense(50, activation='tanh', input_shape=(X.shape[1],)))
+model.add(Dense(35, activation='tanh'))
+model.add(Dense(20, activation='tanh'))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Выбор архитектуры: вариант №5
+model = Sequential()
+model.add(Dense(60, activation='tanh', input_shape=(X.shape[1],)))
+model.add(Dense(40, activation='tanh'))
+model.add(Dense(30, activation='tanh'))
+model.add(Dense(20, activation='tanh'))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Методы повышения качества
+#Добавление инициализации: не позволил повысить качество модели
+model = Sequential()
+model.add(Dense(60, activation='tanh', kernel_initializer=initializers.GlorotUniform(), input_shape=(X.shape[1],)))
+model.add(Dense(40, activation='tanh', kernel_initializer=initializers.GlorotUniform()))
+model.add(Dense(30, activation='tanh', kernel_initializer=initializers.GlorotUniform()))
+model.add(Dense(20, activation='tanh', kernel_initializer=initializers.GlorotUniform()))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Методы повышения качества
+#L2-регуляризации на 1 и 3 слое 
+model = Sequential()
+model.add(Dense(60, activation='tanh', kernel_regularizer=regularizers.l2(0.001), input_shape=(X.shape[1],)))
+model.add(Dense(40, activation='tanh'))
+model.add(Dense(30, activation='tanh', kernel_regularizer=regularizers.l2(0.001)))
+model.add(Dense(20, activation='tanh'))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Методы повышения качества
+#L2-регуляризации на 1 и 2 слое 
+model = Sequential()
+model.add(Dense(60, activation='tanh', kernel_regularizer=regularizers.l2(0.001), input_shape=(X.shape[1],)))
+model.add(Dense(40, activation='tanh', kernel_regularizer=regularizers.l2(0.001)))
+model.add(Dense(30, activation='tanh'))
+model.add(Dense(20, activation='tanh'))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Методы повышения качества
+#Dropout после 1 слоя 
+model = Sequential()
+model.add(Dense(60, activation='tanh', input_shape=(X.shape[1],)))
+model.add(Dropout(0.2))
+model.add(Dense(40, activation='tanh'))
+model.add(Dense(30, activation='tanh'))
+model.add(Dense(20, activation='tanh'))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Методы повышения качества
+#Dropout после 2 слоя 
+model = Sequential()
+model.add(Dense(60, activation='tanh', input_shape=(X.shape[1],)))
+model.add(Dense(40, activation='tanh'))
+model.add(Dropout(0.2))
+model.add(Dense(30, activation='tanh'))
+model.add(Dense(20, activation='tanh'))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Методы повышения качества
+#Dropout_п_2сл_и_L2_на_1сл
+model = Sequential()
+model.add(Dense(60, activation='tanh', kernel_regularizer=regularizers.l2(0.001), input_shape=(X.shape[1],)))
+model.add(Dense(40, activation='tanh'))
+model.add(Dropout(0.2))
+model.add(Dense(30, activation='tanh'))
+model.add(Dense(20, activation='tanh'))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Полносвязная модель
+model = Sequential()
+model.add(Dense(70, activation='tanh', kernel_initializer=initializers.GlorotUniform(),input_shape=(X.shape[1],)))
+model.add(Dropout(0.2))
+model.add(Dense(30, activation='tanh', kernel_initializer=initializers.GlorotUniform()))
+model.add(Dense(20, activation='tanh', kernel_initializer=initializers.GlorotUniform(), kernel_regularizer=regularizers.l2(0.001)))
+model.add(Dense(10, activation='tanh', kernel_initializer=initializers.GlorotUniform(), kernel_regularizer=regularizers.l2(0.001)))
+#model.add(Dense(50, activation='tanh', kernel_regularizer=regularizers.l2(0.001)))
+model.add(Dense(5, activation='relu'))
+model.add(Dense(1))
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Полносвязная модель
+model = Sequential()
+model.add(Dense(70, activation='sigmoid', input_shape=(X.shape[1],)))
+model.add(Dense(50, activation='sigmoid', kernel_regularizer=regularizers.l2(0.001)))
+model.add(Dense(10, activation='relu'))
+model.add(Dense(1))
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+
+
+#model.summary()
+
+#layer = Dense(100, activation='relu', input_shape=(X.shape[1],))
+#layer.weights 
+#x = tf.ones((1, 4))
+#y = layer(x)
+#layer.weights
+
+#plot_model(model, to_file='model.png', show_shapes=True, show_layer_names=True,rankdir="TB",expand_nested=True)
+
+
+
+
+history = model.fit(X, Y, epochs=10, batch_size=10, verbose=2, validation_data=(x_val, y_val))
+hist = pd.DataFrame(history.history)
+hist['epoch'] = history.epoch
+
+print(hist.tail())
+
+hist[{'loss','val_loss'}].plot()
+
+hist[{'loss','val_loss'}].iloc[2:].plot()
+
+
+hist[{'mae','val_mae'}].plot()
+hist[{'mae','val_mae'}].iloc[2:].plot()
+
+
+result_test = pd.DataFrame({
+    'Y_test': [i[0] for i in pd.DataFrame(np.array(y_test)).values.tolist()],
+    'Y_model': [i[0] for i in pd.DataFrame(np.array(model.predict(x_test))).values.tolist()],
+    'Y_system': [i[0] for i in pd.DataFrame(np.array(y_test_system)).values.tolist()]
+    })
+
+result_test_без_системы = pd.DataFrame({
+    'Y_test': [i[0] for i in pd.DataFrame(np.array(y_test)).values.tolist()],
+    'Y_model': [i[0] for i in pd.DataFrame(np.array(model.predict(x_test))).values.tolist()]
+    })
+
+result_test_без_системы.plot.hist(alpha=0.5,figsize=(10, 3))
+result_test.hist(figsize=(10, 7))
+
+#Выгрузка данных по всей выборочной совокупности
+result = pd.DataFrame({
+    'Y_test': [i[0] for i in pd.DataFrame(np.array(data_pd.iloc[:,0])).values.tolist()],
+    'Y_model': [i[0] for i in pd.DataFrame(np.array(model.predict(data_pd.iloc[:,2:]))).values.tolist()],
+    'Y_system': [i[0] for i in pd.DataFrame(np.array(data_pd.iloc[:,1])).values.tolist()]
+    })
+
+
+#result.to_excel('result_Dropout_после_1_слоя.xlsx', sheet_name='test', index=False)
+#model.save('model_Dropout_после_1_слоя.h5')
+
+#result.to_excel('result_Dropout_после_2_слоя.xlsx', sheet_name='test', index=False)
+#model.save('model_Dropout_после_2_слоя.h5')
+
+result.to_excel('result_2_вар_60_40_30_20_10_1.xlsx', sheet_name='test', index=False)
+model.save('model_2_вар_60_40_30_20_10_1.h5')
+
+# Оценка точности работы сети
+#x_test, y_test = np.array(x_test), np.array(y_test)
+mse, mae = model.evaluate(X, Y, verbose=0)
+
+print("Средняя абсолютная ошибка - обучение:", mae)
+print("Средняя квадратичная ошибка - обучение:", mse)
+print('  ')
+mse, mae = model.evaluate(x_test, y_test, verbose=0)
+
+print("Средняя абсолютная ошибка - тест:", mae)
+print("Средняя квадратичная ошибка - тест:", mse)
+
+
+# Использование сети для предсказания величины изменений цены квадратного метра
+pred = model.predict(x_test)
+pred_training = model.predict(X)
+
+test_predictions = model.predict(x_test).flatten()
+
+print('   ')
+print("Тестовая выборка:")
+print("синий - факт, зелёный - предсказание")
+t = np.arange(0, num_test-1, 1)
+plt.figure(figsize=(10, 10))
+plt.plot(t, y_test, 'b*', pred, 'g*')
+plt.show()
+
+print('   ')
+print("Тестовая выборка:")
+print("синий - факт, зелёный - предсказание")
+t = np.arange(0, num_training_val, 1)
+plt.figure(figsize=(7, 4))
+plt.plot(t, y_val, 'b*', model.predict(x_val), 'g*')
+plt.show()
+
+
+print('   ')
+print("Тестовая выборка(60_40_30_20_10_1)")
+print("синий - факт, зелёный - предсказание")
+t = np.arange(0, num_test-1, 1)
+plt.figure(figsize=(20, 10))
+plt.plot(t, y_test, 'b', test_predictions_60_40_30_20_10_1, 'g')
+plt.show()
+
+print('   ')
+print("Тестовая выборка (Dropout_после_1_слоя)")
+print("синий - факт, зелёный - предсказание")
+t = np.arange(0, num_test-1, 1)
+plt.figure(figsize=(20, 10))
+plt.plot(t, y_test, 'b', test_predictions_Dropout_после_1_слоя, 'g')
+plt.show()
+
+print('   ')
+print("Тестовая выборка (Dropout_после_2_слоя)")
+print("синий - факт, зелёный - предсказание")
+t = np.arange(0, num_test-1, 1)
+plt.figure(figsize=(10, 10))
+plt.plot(t, y_test, 'b*', test_predictions_Dropout_после_2_слоя, 'g*')
+plt.show()
+
+
+
+print('Сравнение первых 100 наблюдений из тестовой выборки (факт и прогноз)')
+result_test_без_системы.iloc[5:,:].head(200).plot(figsize=(15,5))
+plt.show()
+
+print('Сравнение первых 100 наблюдений из тестовой выборки')
+result_test.iloc[:,0:].head(100).plot(figsize=(15,6))
+plt.show()
+
+print('Сравнение наблюдений, у которых итог был отличен от системы ДЦО')
+result_test.loc[result_test.Y_test!=result_test.Y_system].plot(figsize=(15,6))
+plt.show()
+
+loss = hist[{'loss'}].iloc[2:]
+val_loss = hist[{'val_loss'}].iloc[2:]
+mae = hist[{'mae'}].iloc[2:]
+val_mae = hist[{'val_mae'}].iloc[2:]
+
+loss_2_вар_60_40_30_20_10_1 = hist[{'loss'}].iloc[2:]
+loss_2_вар_60_40_30_20_10_1.columns = ['loss_2_вар_60_40_30_20_10_1']
+
+val_loss_2_вар_60_40_30_20_10_1 = hist[{'val_loss'}].iloc[2:]
+val_loss_2_вар_60_40_30_20_10_1.columns = ['val_loss_2_вар_60_40_30_20_10_1']
+
+mae_2_вар_60_40_30_20_10_1 = hist[{'mae'}].iloc[2:]
+mae_2_вар_60_40_30_20_10_1.columns = ['mae_2_вар_60_40_30_20_10_1']
+
+val_mae_2_вар_60_40_30_20_10_1 = hist[{'val_mae'}].iloc[2:]
+val_mae_2_вар_60_40_30_20_10_1.columns = ['val_mae_2_вар_60_40_30_20_10_1']
+
+test_predictions_2_вар_60_40_30_20_10_1 = test_predictions
+
+metric_mse_2_вар_60_40_30_20_10_1, metric_mae_2_вар_60_40_30_20_10_1 = model.evaluate(x_test, y_test, verbose=0)
+
+result_test_2_вар_60_40_30_20_10_1 = result_test
+
+
+
+#loss_сравнение = []
+loss_сравнение = pd.concat([
+    loss_20_10_1,
+    loss_40_20_10_1,
+    loss_50_35_20_10_1,
+    loss_60_40_20_10_1,
+    loss_60_40_30_20_10_1,
+    loss_2_вар_60_40_30_20_10_1
+])
+loss_сравнение.plot(figsize=(15, 6))
+
+#loss_сравнение = []
+val_loss_сравнение = pd.concat([
+    val_loss_20_10_1,
+    val_loss_40_20_10_1,
+    val_loss_50_35_20_10_1,
+    val_loss_60_40_20_10_1,
+    val_loss_60_40_30_20_10_1,
+    val_loss_2_вар_60_40_30_20_10_1
+])
+val_loss_сравнение.plot(figsize=(15, 6))
+
+#mae_сравнение=[]
+val_mae_сравнение = pd.concat([
+    val_mae_20_10_1,
+    val_mae_40_20_10_1,
+    val_mae_50_35_20_10_1,
+    val_mae_60_40_20_10_1,
+    val_mae_60_40_30_20_10_1,
+    val_mae_2_вар_60_40_30_20_10_1
+])
+val_mae_сравнение.plot(figsize=(15, 6))
+
+loss_сравнение = pd.concat([
+    loss_60_40_30_20_10_1,
+    loss_инициализация_весов
+])
+loss_сравнение.plot(figsize=(15, 6))
+
+val_loss_сравнение = pd.concat([
+    val_loss_60_40_30_20_10_1,
+    val_loss_инициализация_весов
+])
+val_loss_сравнение.plot(figsize=(6, 3))
+
+val_mae_сравнение = pd.concat([
+    val_mae_60_40_30_20_10_1,
+    val_mae_инициализация_весов
+])
+val_mae_сравнение.plot(figsize=(6, 3))
+
+loss_сравнение = pd.concat([
+    loss_60_40_30_20_10_1,
+    loss_L2_регуляризация_1_2_слой,
+    loss_L2_регуляризация_1_3_слой
+])
+loss_сравнение.plot(figsize=(6, 3))
+
+#loss_сравнение = []
+val_loss_сравнение = pd.concat([
+    val_loss_60_40_30_20_10_1,
+    val_loss_L2_регуляризация_1_2_слой,
+    val_loss_L2_регуляризация_1_3_слой
+])
+val_loss_сравнение.plot(figsize=(6, 3))
+
+#mae_сравнение=[]
+val_mae_сравнение = pd.concat([
+    val_mae_60_40_30_20_10_1,
+    val_mae_L2_регуляризация_1_2_слой,
+    val_mae_L2_регуляризация_1_3_слой
+])
+val_mae_сравнение.plot(figsize=(6, 3))
+
+loss_сравнение = pd.concat([
+    loss_60_40_30_20_10_1,
+    loss_2_вар_60_40_30_20_10_1,
+    loss_Dropout_после_1_слоя,
+    loss_Dropout_после_2_слоя
+])
+loss_сравнение.plot(figsize=(6, 3))
+
+val_loss_сравнение = pd.concat([
+    val_loss_60_40_30_20_10_1,
+    val_loss_2_вар_60_40_30_20_10_1,
+    val_loss_Dropout_после_1_слоя,
+    val_loss_Dropout_после_2_слоя
+])
+val_loss_сравнение.plot(figsize=(6, 3))
+
+val_mae_сравнение = pd.concat([
+    val_mae_60_40_30_20_10_1,
+    val_mae_2_вар_60_40_30_20_10_1,
+    val_mae_Dropout_после_1_слоя,
+    val_mae_Dropout_после_2_слоя
+])
+val_mae_сравнение.plot(figsize=(6, 3))
+
+loss_сравнение = pd.concat([
+    loss_60_40_30_20_10_1,
+    loss_Dropout_п_1сл_и_L2_на_1сл,
+    loss_Dropout_п_2сл_и_L2_на_1сл
+])
+loss_сравнение.plot(figsize=(6, 3))
+
+val_loss_сравнение = pd.concat([
+    val_loss_60_40_30_20_10_1,
+    val_loss_Dropout_п_1сл_и_L2_на_1сл,
+    val_loss_Dropout_п_2сл_и_L2_на_1сл
+])
+val_loss_сравнение.plot(figsize=(6, 3))
+
+val_mae_сравнение = pd.concat([
+    val_mae_60_40_30_20_10_1,
+    val_mae_Dropout_п_1сл_и_L2_на_1сл,
+    val_mae_Dropout_п_2сл_и_L2_на_1сл
+])
+val_mae_сравнение.plot(figsize=(6, 3))
+
+print("Сравнение предсказаний на тестовой выборке:")
+print("синий - (y_test - y_test_system), красный - (y_test - pred)")
+t = np.arange(0, num_test-1, 1)
+plt.figure(figsize=(10, 10))
+plt.plot(t, y_test - y_test_system, 'b*', y_test - pred , 'r*')
+
+
+
+X_3D = np.expand_dims(X, 1)
+X_val_3D = np.expand_dims(x_val, 1)
+X_test_3D = np.expand_dims(x_test, 1)
+
+model_RNN
+
+#Полносвязная рекуррентная модель
+model_RNN = Sequential()
+model_RNN.add(SimpleRNN(200, activation='relu', return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(SimpleRNN(150, activation='relu', return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(SimpleRNN(50, activation='relu'))
+model_RNN.add(Dense(25, activation='relu'))
+model_RNN.add(Dense(10, activation='relu'))
+model_RNN.add(Dense(1))
+model_RNN.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Полносвязная рекуррентная модель
+model_RNN = Sequential()
+model_RNN.add(LSTM(____, activation='_____', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(____, activation='_____', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(____, activation='_____'))
+model_RNN.add(Dense(1))
+model_RNN.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#LSTM: 
+model_RNN = Sequential()
+model_RNN.add(LSTM(60, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(40, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(30, activation='tanh'))
+#model_RNN.add(Dropout(0.2))
+#model_RNN.add(Dense(25, activation='tanh'))
+model_RNN.add(Dense(10, activation='relu'))
+model_RNN.add(Dense(1))
+model_RNN.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+#Полносвязная рекуррентная модель
+model_RNN = Sequential()
+model_RNN.add(LSTM(20, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(10, activation='tanh'))
+model_RNN.add(Dense(1))
+model_RNN.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+model_RNN = Sequential()
+model_RNN.add(LSTM(40, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(20, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(10, activation='tanh'))
+model_RNN.add(Dense(1))
+model_RNN.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+model_RNN = Sequential()
+model_RNN.add(LSTM(60, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(40, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(20, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(10, activation='tanh'))
+model_RNN.add(Dense(1))
+model_RNN.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+model_RNN = Sequential()
+model_RNN.add(LSTM(60, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(Dropout(0.2))
+model_RNN.add(LSTM(40, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(20, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(10, activation='tanh'))
+model_RNN.add(Dense(1))
+model_RNN.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+model_RNN = Sequential()
+model_RNN.add(LSTM(60, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(40, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(Dropout(0.2))
+model_RNN.add(LSTM(20, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(10, activation='tanh'))
+model_RNN.add(Dense(1))
+model_RNN.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+model_RNN = Sequential()
+model_RNN.add(LSTM(60, activation='tanh', 
+                   return_sequences=True, kernel_regularizer=regularizers.l2(0.001),input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(40, activation='tanh', 
+                   return_sequences=True, kernel_regularizer=regularizers.l2(0.001),input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(20, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(10, activation='tanh'))
+model_RNN.add(Dense(1))
+model_RNN.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+model_RNN = Sequential()
+model_RNN.add(LSTM(60, activation='tanh', 
+                   return_sequences=True, kernel_regularizer=regularizers.l2(0.001)
+                   ,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(40, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3D.shape[1:])))
+model_RNN.add(LSTM(20, activation='tanh', 
+                   return_sequences=True,input_shape=(X_3.shape[1:])))
+model_RNN.add(LSTM(10, activation='tanh'))
+model_RNN.add(Dense(1))
+model_RNN.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+history = model_RNN.fit(X_3D, Y, epochs=10, batch_size=10, validation_data=(X_val_3D, y_val))
+hist = pd.DataFrame(history.history)
+hist['epoch'] = history.epoch
+
+hist[{'mae','val_mae'}].plot()
+#hist[{'mae','val_mae'}].iloc[3:].plot()
+
+hist[{'loss','val_loss'}].plot()
+#hist[{'loss','val_loss'}].iloc[3:].plot()
+
+print(hist.tail())
+
+
+# Оценка точности работы сети
+#x_test, y_test = np.array(x_test), np.array(y_test)
+mse, mae = model_RNN.evaluate(X_3D, Y, verbose=0)
+
+print("Средняя абсолютная ошибка (руб.) - обучение:", mae)
+print("Средняя квадратичная ошибка - обучение:", mse)
+print('   ')
+mse, mae = model_RNN.evaluate(X_test_3D, y_test, verbose=0)
+
+print("Средняя абсолютная ошибка (руб.) - тест:", mae)
+print("Средняя квадратичная ошибка - обучение:", mse)
+
+# Использование сети для предсказания величины изменений цены квадратного метра
+pred = model_RNN.predict(X_test_3D)
+pred_training = model_RNN.predict(X_3D)
+
+test_predictions = model_RNN.predict(X_test_3D).flatten()
+
+print('       ')
+print("Тестовая выборка:")
+print("синий - факт, зелёный - предсказание")
+t = np.arange(0, num_test-1, 1)
+plt.plot(t, y_test, 'b*', pred, 'g*')
+plt.show()
+
+print('       ')
+print("Обучающая выборка:")
+print("синий - факт, зелёный - предсказание") 
+t = np.arange(0, num_training-1, 1)
+plt.plot(t, Y, 'b*', pred_training, 'g*')
+plt.show()
+
+print("Сравнение предсказаний на тестовой выборке:")
+print("синий - (y_test - y_test_system), красный - (y_test - pred)")
+t = np.arange(0, num_test-1, 1)
+plt.plot(t, y_test - y_test_system, 'b*', y_test - pred , 'r*')
+plt.show()
+
+
+print("Средняя абсолютная ошибка:", LSTM_metric_mae_60_40_20_10_1)
+print("Средняя квадратичная ошибка:", LSTM_metric_mse_60_40_20_10_1)
+
+
+
+LSTM_loss_L2_регуляризация_1_2_слой = hist[{'loss'}]
+LSTM_loss_L2_регуляризация_1_2_слой.columns = ['LSTM_loss_L2_регуляризация_1_2_слой']
+
+LSTM_val_loss_L2_регуляризация_1_2_слой = hist[{'val_loss'}]
+LSTM_val_loss_L2_регуляризация_1_2_слой.columns = ['LSTM_val_loss_L2_регуляризация_1_2_слой']
+
+LSTM_mae_L2_регуляризация_1_2_слой = hist[{'mae'}]
+LSTM_mae_L2_регуляризация_1_2_слой.columns = ['LSTM_mae_L2_регуляризация_1_2_слой']
+
+LSTM_val_mae_L2_регуляризация_1_2_слой = hist[{'val_mae'}]
+LSTM_val_mae_L2_регуляризация_1_2_слой.columns = ['LSTM_val_mae_L2_регуляризация_1_2_слой']
+
+LSTM_test_predictions_L2_регуляризация_1_2_слой = test_predictions
+
+LSTM_metric_mse_L2_регуляризация_1_2_слой, LSTM_metric_mae_L2_регуляризация_1_2_слой = model_RNN.evaluate(X_test_3D, y_test, verbose=0)
+
+result_test = pd.DataFrame({
+    'Y_test': [i[0] for i in pd.DataFrame(np.array(y_test)).values.tolist()],
+    'Y_model': [i[0] for i in pd.DataFrame(np.array(model_RNN.predict(X_test_3D))).values.tolist()],
+    'Y_system': [i[0] for i in pd.DataFrame(np.array(y_test_system)).values.tolist()]
+    })
+
+result_test_без_системы = pd.DataFrame({
+    'Y_test': [i[0] for i in pd.DataFrame(np.array(y_test)).values.tolist()],
+    'Y_model': [i[0] for i in pd.DataFrame(np.array(model_RNN.predict(X_test_3D))).values.tolist()]
+    })
+
+result_test_без_системы.plot.hist(alpha=0.5,figsize=(10, 3))
+result_test.hist(figsize=(10, 7))
+
+print('Сравнение первых 100 наблюдений из тестовой выборки (факт и прогноз)')
+result_test_без_системы.iloc[5:,:].head(1000).plot(figsize=(15,5))
+plt.show()
+result_test_без_системы.iloc[:,:].plot(figsize=(15,5))
+plt.show()
+
+print('Сравнение первых 100 наблюдений из тестовой выборки')
+result_test.iloc[:,0:].head(100).plot(figsize=(15,6))
+plt.show()
+
+print('Сравнение наблюдений, у которых итог был отличен от системы ДЦО')
+result_test.loc[result_test.Y_test!=result_test.Y_system].plot(figsize=(15,6))
+plt.show()
+
+#loss_сравнение = []
+loss_сравнение = pd.concat([
+    LSTM_loss_20_10_1,
+    LSTM_loss_40_20_10_1,
+    LSTM_loss_60_40_20_10_1
+])
+loss_сравнение.plot(figsize=(15, 6))
+
+#loss_сравнение = []
+val_loss_сравнение = pd.concat([
+    LSTM_val_loss_20_10_1,
+    LSTM_val_loss_40_20_10_1,
+    LSTM_val_loss_60_40_20_10_1
+])
+val_loss_сравнение.plot(figsize=(15, 6))
+
+#mae_сравнение=[]
+val_mae_сравнение = pd.concat([
+    LSTM_val_mae_20_10_1,
+    LSTM_val_mae_40_20_10_1,
+    LSTM_val_mae_60_40_20_10_1
+])
+val_mae_сравнение.plot(figsize=(15, 6))
+
+#loss_сравнение = []
+val_loss_сравнение = pd.concat([
+    LSTM_val_loss_60_40_20_10_1,
+    val_loss_60_40_30_20_10_1
+])
+val_loss_сравнение.plot(figsize=(8, 5))
+
+#mae_сравнение=[]
+val_mae_сравнение = pd.concat([
+    LSTM_val_mae_60_40_20_10_1,
+    val_mae_60_40_30_20_10_1
+])
+val_mae_сравнение.plot(figsize=(8, 5))
+
+result_RNN_LSTM = pd.DataFrame({
+    'Y_test': [i[0] for i in pd.DataFrame(np.array(data_pd.iloc[:,0])).values.tolist()],
+    'Y_model': [i[0] for i in pd.DataFrame(np.array(model_RNN.predict(np.expand_dims(data_pd.iloc[:,2:], 1)))).values.tolist()],
+    'Y_system': [i[0] for i in pd.DataFrame(np.array(data_pd.iloc[:,1])).values.tolist()]
+    })
+
+#result_training.plot()
+
+result_RNN_LSTM.to_clipboard()
+result_RNN_LSTM
+
+
+loss_сравнение = pd.concat([
+    LSTM_loss_60_40_20_10_1,
+    LSTM_loss_Dropout_после_1_слоя,
+    LSTM_loss_Dropout_после_2_слоя
+])
+loss_сравнение.plot(figsize=(5, 3))
+
+val_loss_сравнение = pd.concat([
+    LSTM_val_loss_60_40_20_10_1,
+    LSTM_val_Dropout_после_1_слоя,
+    LSTM_val_loss_Dropout_после_2_слоя
+])
+val_loss_сравнение.plot(figsize=(5, 3))
+
+val_mae_сравнение = pd.concat([
+    LSTM_val_mae_60_40_20_10_1,
+    LSTM_val_mae_Dropout_после_1_слоя,
+    LSTM_val_mae_Dropout_после_2_слоя
+])
+val_mae_сравнение.plot(figsize=(5, 3))
+
+result_training.to_excel('test_training_лучшая_RNN.xlsx', sheet_name='training', index=False)
+result_test_1.to_excel('test_test_лучшая_RNN.xlsx', sheet_name='test', index=False)
+
